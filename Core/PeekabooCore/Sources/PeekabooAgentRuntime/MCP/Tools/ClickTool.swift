@@ -1,9 +1,14 @@
 import Foundation
 import MCP
 import os.log
-import PeekabooAutomation
 import PeekabooFoundation
 import TachikomaMCP
+
+#if canImport(AppKit)
+import AppKit
+@preconcurrency import AXorcist
+import PeekabooAutomation
+#endif
 
 /// MCP tool for clicking UI elements
 public struct ClickTool: MCPTool {
@@ -51,6 +56,27 @@ public struct ClickTool: MCPTool {
                 "right": SchemaBuilder.boolean(
                     description: "Optional. Right-click (secondary click) instead of left-click.",
                     default: false),
+                "profile": SchemaBuilder.string(
+                    description: """
+                    Optional. Cursor movement profile before clicking: 'linear' or 'human'.
+                    Supplying this moves the cursor to the target before clicking.
+                    """),
+                "duration": SchemaBuilder.number(
+                    description: """
+                    Optional. Cursor movement duration in milliseconds before clicking.
+                    Defaults to 500 for linear movement and an adaptive duration for human movement.
+                    """),
+                "steps": SchemaBuilder.number(
+                    description: """
+                    Optional. Number of movement steps before clicking.
+                    Defaults to 20 for linear movement and a distance-based count for human movement.
+                    """),
+                "hold_duration": SchemaBuilder.number(
+                    description: """
+                    Optional. Hold the mouse button down for this many milliseconds before releasing.
+                    Double-click does not support hold duration.
+                    """,
+                    default: 0),
             ],
             required: [])
     }
@@ -72,15 +98,17 @@ public struct ClickTool: MCPTool {
 
         do {
             let resolution = try await self.resolveClickTarget(for: request)
-            try await self.performClick(
+            let execution = try await self.performClick(
                 at: resolution.location,
                 snapshotId: request.snapshotId,
-                intent: request.intent)
+                intent: request.intent,
+                request: request)
 
             let executionTime = Date().timeIntervalSince(startTime)
             return self.buildResponse(
                 intent: request.intent,
                 resolution: resolution,
+                execution: execution,
                 executionTime: executionTime)
         } catch let error as ClickToolError {
             return ToolResponse.error(error.message)
@@ -124,16 +152,36 @@ public struct ClickTool: MCPTool {
         }
     }
 
-    private func performClick(at location: CGPoint, snapshotId: String?, intent: ClickIntent) async throws {
+    @MainActor
+    private func performClick(
+        at location: CGPoint,
+        snapshotId: String?,
+        intent: ClickIntent,
+        request: ClickRequest) async throws -> ClickExecution
+    {
+        let currentLocation = self.currentMouseLocation()
+        let distance = hypot(location.x - currentLocation.x, location.y - currentLocation.y)
+        let movement = self.resolveMovement(for: request, distance: distance)
+        let options = ClickOptions(
+            movement: movement.map { ClickMovement(duration: $0.duration, steps: $0.steps, profile: $0.profile) },
+            holdDuration: request.holdDuration)
         try await self.context.automation.click(
             target: .coordinates(location),
             clickType: intent.automationType,
-            snapshotId: snapshotId)
+            snapshotId: snapshotId,
+            options: options)
+        return ClickExecution(
+            movement: movement,
+            startPoint: currentLocation,
+            distance: distance,
+            direction: pointerDirection(from: currentLocation, to: location),
+            holdDuration: request.holdDuration)
     }
 
     private func buildResponse(
         intent: ClickIntent,
         resolution: ClickResolution,
+        execution: ClickExecution,
         executionTime: TimeInterval) -> ToolResponse
     {
         var message = "\(AgentDisplayTokens.Status.success) \(intent.displayVerb)"
@@ -141,16 +189,40 @@ public struct ClickTool: MCPTool {
             message += " on \(element)"
         }
         message += " at (\(Int(resolution.location.x)), \(Int(resolution.location.y)))"
+        if let movement = execution.movement {
+            message += " using \(movement.profileName) profile"
+            if movement.smooth {
+                message += " (\(movement.duration)ms, \(movement.steps) steps)"
+            }
+        }
+        if execution.holdDuration > 0 {
+            message += " held for \(String(format: "%.2f", Double(execution.holdDuration) / 1000.0))s"
+        }
         message += " in \(String(format: "%.2f", executionTime))s"
 
-        let metaDict: [String: Value] = [
+        var metaDict: [String: Value] = [
             "click_location": .object([
                 "x": .double(Double(resolution.location.x)),
                 "y": .double(Double(resolution.location.y)),
             ]),
             "execution_time": .double(executionTime),
             "clicked_element": resolution.elementDescription.map(Value.string) ?? .null,
+            "hold_duration": .double(Double(execution.holdDuration)),
         ]
+
+        if let movement = execution.movement {
+            metaDict["profile"] = .string(movement.profileName)
+            metaDict["pointer_duration"] = .double(Double(movement.duration))
+            metaDict["pointer_steps"] = .double(Double(movement.steps))
+            metaDict["pointer_distance"] = .double(Double(execution.distance))
+            metaDict["start_location"] = .object([
+                "x": .double(Double(execution.startPoint.x)),
+                "y": .double(Double(execution.startPoint.y)),
+            ])
+            if let direction = execution.direction {
+                metaDict["pointer_direction"] = .string(direction)
+            }
+        }
 
         let summary = ToolEventSummary(
             targetApp: resolution.targetApp,
@@ -160,7 +232,12 @@ public struct ClickTool: MCPTool {
             actionDescription: intent.displayVerb,
             coordinates: ToolEventSummary.Coordinates(
                 x: Double(resolution.location.x),
-                y: Double(resolution.location.y)))
+                y: Double(resolution.location.y)),
+            pointerProfile: execution.movement?.profileName,
+            pointerDistance: execution.movement == nil ? nil : Double(execution.distance),
+            pointerDirection: execution.direction,
+            pointerDurationMs: execution.movement == nil ? nil : Double(execution.movement?.duration ?? 0),
+            waitDurationMs: execution.holdDuration > 0 ? Double(execution.holdDuration) : nil)
 
         let metaValue = ToolEventSummary.merge(summary: summary, into: .object(metaDict))
 
@@ -210,6 +287,26 @@ public struct ClickTool: MCPTool {
 
         return matches.first { $0.isActionable } ?? matches[0]
     }
+
+    private func resolveMovement(for request: ClickRequest, distance: CGFloat) -> MovementParameters? {
+        guard let profile = request.profile else { return nil }
+        return profile.resolveParameters(
+            smooth: true,
+            durationOverride: request.durationOverride,
+            stepsOverride: request.stepsOverride,
+            defaultDuration: 500,
+            defaultSteps: 20,
+            distance: distance)
+    }
+
+    @MainActor
+    private func currentMouseLocation() -> CGPoint {
+        #if canImport(AppKit)
+        return InputDriver.currentLocation() ?? .zero
+        #else
+        return .zero
+        #endif
+    }
 }
 
 // MARK: - Supporting Types
@@ -218,6 +315,10 @@ private struct ClickRequest {
     let target: ClickRequestTarget
     let snapshotId: String?
     let intent: ClickIntent
+    let profile: MovementProfileOption?
+    let durationOverride: Int?
+    let stepsOverride: Int?
+    let holdDuration: Int
 
     init(arguments: ToolArguments) throws {
         if let coords = arguments.getString("coords") {
@@ -233,7 +334,39 @@ private struct ClickRequest {
         self.snapshotId = arguments.getString("snapshot")
         let isDouble = arguments.getBool("double") ?? false
         let isRight = arguments.getBool("right") ?? false
-        self.intent = ClickIntent(double: isDouble, right: isRight)
+        let profileInput = arguments.getString("profile")?.lowercased()
+        let resolvedProfile: MovementProfileOption?
+        if let profileInput {
+            guard let profile = MovementProfileOption(rawValue: profileInput) else {
+                throw ClickToolError("Invalid profile '\(profileInput)'. Use 'linear' or 'human'.")
+            }
+            resolvedProfile = profile
+        } else {
+            resolvedProfile = nil
+        }
+
+        let durationProvided = arguments.getValue(for: "duration") != nil
+        let stepsProvided = arguments.getValue(for: "steps") != nil
+        self.durationOverride = durationProvided ? arguments.getNumber("duration").map(Int.init) : nil
+        self.stepsOverride = stepsProvided ? arguments.getNumber("steps").map(Int.init) : nil
+        self.holdDuration = Int(arguments.getNumber("hold_duration") ?? 0)
+        self.intent = try ClickIntent(
+            double: isDouble,
+            right: isRight,
+            holdDuration: self.holdDuration)
+        self.profile = resolvedProfile ?? ((self.durationOverride != nil || self.stepsOverride != nil) ? .linear : nil)
+
+        if let duration = self.durationOverride, duration < 0 {
+            throw ClickToolError("Duration must be non-negative.")
+        }
+
+        if let steps = self.stepsOverride, steps <= 0 {
+            throw ClickToolError("Steps must be greater than zero.")
+        }
+
+        if self.holdDuration < 0 {
+            throw ClickToolError("Hold duration must be non-negative.")
+        }
     }
 }
 
@@ -272,7 +405,11 @@ private struct ClickIntent {
     let automationType: ClickType
     let displayVerb: String
 
-    init(double: Bool, right: Bool) {
+    init(double: Bool, right: Bool, holdDuration: Int) throws {
+        guard !(double && holdDuration > 0) else {
+            throw ClickToolError("Double-click does not support hold_duration.")
+        }
+
         if right {
             self.automationType = .right
             self.displayVerb = "Right-clicked"
@@ -284,6 +421,14 @@ private struct ClickIntent {
             self.displayVerb = "Clicked"
         }
     }
+}
+
+private struct ClickExecution {
+    let movement: MovementParameters?
+    let startPoint: CGPoint
+    let distance: CGFloat
+    let direction: String?
+    let holdDuration: Int
 }
 
 private struct ClickToolError: Error {

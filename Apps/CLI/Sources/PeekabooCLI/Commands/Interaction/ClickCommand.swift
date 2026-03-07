@@ -35,6 +35,18 @@ struct ClickCommand: ErrorHandlingCommand, OutputFormattable {
     @Flag(help: "Right-click (secondary click)")
     var right = false
 
+    @Option(help: "Cursor movement profile before clicking: linear or human")
+    var profile: String?
+
+    @Option(help: "Cursor movement duration in milliseconds before clicking")
+    var duration: Int?
+
+    @Option(help: "Number of movement steps before clicking")
+    var steps: Int?
+
+    @Option(help: "How long to hold the mouse button in milliseconds")
+    var holdDuration: Int = 0
+
     @OptionGroup var focusOptions: FocusCommandOptions
     mutating func validate() throws {
         try self.target.validate()
@@ -57,6 +69,27 @@ struct ClickCommand: ErrorHandlingCommand, OutputFormattable {
                   Double(parts[1]) != nil else {
                 throw ValidationError("Invalid coordinates format. Use: x,y")
             }
+        }
+
+        if let profileName = self.profile?.lowercased(),
+           CursorMovementProfileSelection(rawValue: profileName) == nil {
+            throw ValidationError("Invalid profile '\(profileName)'. Use 'linear' or 'human'.")
+        }
+
+        if let duration = self.duration, duration < 0 {
+            throw ValidationError("Duration must be non-negative.")
+        }
+
+        if let steps = self.steps, steps <= 0 {
+            throw ValidationError("Steps must be greater than zero.")
+        }
+
+        if self.holdDuration < 0 {
+            throw ValidationError("Hold duration must be non-negative.")
+        }
+
+        if self.double && self.holdDuration > 0 {
+            throw ValidationError("Double-click does not support hold duration.")
         }
     }
 
@@ -179,6 +212,7 @@ struct ClickCommand: ErrorHandlingCommand, OutputFormattable {
 
             // Determine click type
             let clickType: ClickType = self.right ? .right : (self.double ? .double : .single)
+            let clickOptions = self.resolveClickOptions(for: clickLocation(from: clickTarget, waitResult: waitResult))
 
             // Perform the click
             if case .coordinates = clickTarget {
@@ -187,7 +221,8 @@ struct ClickCommand: ErrorHandlingCommand, OutputFormattable {
                     automation: self.services.automation,
                     target: clickTarget,
                     clickType: clickType,
-                    snapshotId: nil
+                    snapshotId: nil,
+                    options: clickOptions
                 )
             } else {
                 // For element-based clicks, pass the snapshot ID
@@ -195,7 +230,8 @@ struct ClickCommand: ErrorHandlingCommand, OutputFormattable {
                     automation: self.services.automation,
                     target: clickTarget,
                     clickType: clickType,
-                    snapshotId: activeSnapshotId.isEmpty ? nil : activeSnapshotId
+                    snapshotId: activeSnapshotId.isEmpty ? nil : activeSnapshotId,
+                    options: clickOptions
                 )
             }
 
@@ -271,6 +307,40 @@ struct ClickCommand: ErrorHandlingCommand, OutputFormattable {
         return "\(roleDescription): \(label)"
     }
 
+    private func resolveClickOptions(for targetLocation: CGPoint) -> ClickOptions {
+        let wantsMovement = self.profile != nil || self.duration != nil || self.steps != nil
+        let movement = wantsMovement ? self.resolveMovement(for: targetLocation) : nil
+        return ClickOptions(movement: movement, holdDuration: self.holdDuration)
+    }
+
+    private func resolveMovement(for targetLocation: CGPoint) -> ClickMovement {
+        let selection = CursorMovementProfileSelection(rawValue: self.profile?.lowercased() ?? "linear") ?? .linear
+        let currentLocation = NSEvent.mouseLocation
+        let distance = hypot(targetLocation.x - currentLocation.x, targetLocation.y - currentLocation.y)
+        let parameters = CursorMovementResolver.resolve(
+            selection: selection,
+            durationOverride: self.duration,
+            stepsOverride: self.steps,
+            baseSmooth: true,
+            distance: distance,
+            defaultDuration: 500,
+            defaultSteps: 20)
+        return ClickMovement(duration: parameters.duration, steps: parameters.steps, profile: parameters.profile)
+    }
+
+    private func clickLocation(from target: ClickTarget, waitResult: WaitForElementResult) -> CGPoint {
+        switch target {
+        case let .coordinates(point):
+            point
+        case .elementId, .query:
+            if let element = waitResult.element {
+                CGPoint(x: element.bounds.midX, y: element.bounds.midY)
+            } else {
+                .zero
+            }
+        }
+    }
+
     private func focusApplicationIfNeeded(snapshotId: String?) async throws {
         guard self.focusOptions.autoFocus else {
             return
@@ -308,6 +378,12 @@ extension ClickCommand: CommanderBindableCommand {
         }
         self.double = values.flag("double")
         self.right = values.flag("right")
+        self.profile = values.singleOption("profile")
+        self.duration = try values.decodeOption("duration", as: Int.self)
+        self.steps = try values.decodeOption("steps", as: Int.self)
+        if let hold: Int = try values.decodeOption("holdDuration", as: Int.self) {
+            self.holdDuration = hold
+        }
         self.focusOptions = try values.makeFocusOptions()
     }
 }

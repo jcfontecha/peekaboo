@@ -42,6 +42,21 @@ struct ClickCommandAdvancedTests {
         #expect(command.waitFor == 3000)
     }
 
+    @Test("Parse click movement and hold options")
+    func movementAndHoldParsing() async throws {
+        let command = try ClickCommand.parse([
+            "--on", "B1",
+            "--profile", "human",
+            "--duration", "750",
+            "--steps", "45",
+            "--hold-duration", "1200",
+        ])
+        #expect(command.profile == "human")
+        #expect(command.duration == 750)
+        #expect(command.steps == 45)
+        #expect(command.holdDuration == 1200)
+    }
+
     @Test("Parse snapshot option")
     func snapshotParsing() async throws {
         let command = try ClickCommand.parse(["--on", "C1", "--snapshot", "12345"])

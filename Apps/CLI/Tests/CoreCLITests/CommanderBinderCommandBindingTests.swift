@@ -378,7 +378,11 @@ struct CommanderBinderCommandBindingTests {
                 "snapshot": ["abc"],
                 "on": ["B1"],
                 "app": ["Safari"],
-                "waitFor": ["2500"]
+                "waitFor": ["2500"],
+                "profile": ["human"],
+                "duration": ["750"],
+                "steps": ["45"],
+                "holdDuration": ["1200"],
             ],
             flags: ["double", "noAutoFocus"]
         )
@@ -389,6 +393,10 @@ struct CommanderBinderCommandBindingTests {
         #expect(command.target.app == "Safari")
         #expect(command.waitFor == 2500)
         #expect(command.double == true)
+        #expect(command.profile == "human")
+        #expect(command.duration == 750)
+        #expect(command.steps == 45)
+        #expect(command.holdDuration == 1200)
         #expect(command.focusOptions.noAutoFocus == true)
     }
 

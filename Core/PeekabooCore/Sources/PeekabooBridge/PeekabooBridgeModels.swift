@@ -387,11 +387,18 @@ public struct PeekabooBridgeClickRequest: Codable, Sendable {
     public let target: ClickTarget
     public let clickType: ClickType
     public let snapshotId: String?
+    public let options: ClickOptions
 
-    public init(target: ClickTarget, clickType: ClickType, snapshotId: String? = nil) {
+    public init(
+        target: ClickTarget,
+        clickType: ClickType,
+        snapshotId: String? = nil,
+        options: ClickOptions = ClickOptions())
+    {
         self.target = target
         self.clickType = clickType
         self.snapshotId = snapshotId
+        self.options = options
     }
 }
 

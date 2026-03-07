@@ -341,8 +341,11 @@ struct PeekabooBridgeTests {
                 allowlistedBundles: [])
         }
 
+        let options = ClickOptions(
+            movement: ClickMovement(duration: 640, steps: 48, profile: .human()),
+            holdDuration: 300)
         let request = PeekabooBridgeRequest.click(
-            PeekabooBridgeClickRequest(target: .elementId("B1"), clickType: .single, snapshotId: nil))
+            PeekabooBridgeClickRequest(target: .elementId("B1"), clickType: .single, snapshotId: nil, options: options))
         let requestData = try JSONEncoder.peekabooBridgeEncoder().encode(request)
         let responseData = await server.decodeAndHandle(requestData, peer: nil)
         let response = try self.decode(responseData)
@@ -359,6 +362,9 @@ struct PeekabooBridgeTests {
             Issue.record("Expected elementId(B1), got \(String(describing: lastClick?.target))")
         }
         #expect(lastClick?.type == .single)
+        #expect(lastClick?.options.holdDuration == 300)
+        #expect(lastClick?.options.movement?.duration == 640)
+        #expect(lastClick?.options.movement?.steps == 48)
     }
 }
 
@@ -450,7 +456,7 @@ private final class StubScreenCaptureService: ScreenCaptureServiceProtocol {
 
 @MainActor
 private final class StubAutomationService: UIAutomationServiceProtocol {
-    struct Click { let target: ClickTarget; let type: ClickType }
+    struct Click { let target: ClickTarget; let type: ClickType; let options: ClickOptions }
     private(set) var lastClick: Click?
 
     func detectElements(in _: Data, snapshotId _: String?, windowContext _: WindowContext?) async throws
@@ -469,8 +475,8 @@ private final class StubAutomationService: UIAutomationServiceProtocol {
                 isDialog: false))
     }
 
-    func click(target: ClickTarget, clickType: ClickType, snapshotId _: String?) async throws {
-        self.lastClick = Click(target: target, type: clickType)
+    func click(target: ClickTarget, clickType: ClickType, snapshotId _: String?, options: ClickOptions) async throws {
+        self.lastClick = Click(target: target, type: clickType, options: options)
     }
 
     func type(text _: String, target _: String?, clearExisting _: Bool, typingDelay _: Int, snapshotId _: String?) async

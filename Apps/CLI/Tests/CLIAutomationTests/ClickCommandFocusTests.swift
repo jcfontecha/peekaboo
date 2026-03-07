@@ -27,6 +27,8 @@ struct ClickCommandFocusTests {
         #expect(output.contains("--focus-retry-count"))
         #expect(output.contains("--space-switch"))
         #expect(output.contains("--bring-to-current-space"))
+        #expect(output.contains("--profile"))
+        #expect(output.contains("--hold-duration"))
     }
 
     // Snapshot-based click behavior is validated in opt-in end-to-end suites.

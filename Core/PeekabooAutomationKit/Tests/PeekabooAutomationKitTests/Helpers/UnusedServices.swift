@@ -126,7 +126,9 @@ final class UnusedUIAutomationService: UIAutomationServiceProtocol {
         fatalError("unused")
     }
 
-    func click(target: ClickTarget, clickType: ClickType, snapshotId: String?) async throws { fatalError("unused") }
+    func click(target: ClickTarget, clickType: ClickType, snapshotId: String?, options _: ClickOptions) async throws {
+        fatalError("unused")
+    }
 
     func type(text: String, target: String?, clearExisting: Bool, typingDelay: Int, snapshotId: String?) async throws {
         fatalError("unused")

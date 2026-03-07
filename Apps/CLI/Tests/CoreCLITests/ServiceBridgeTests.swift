@@ -19,6 +19,8 @@ struct ServiceBridgeTests {
 
         #expect(automation.clickCalls.count == 1)
         #expect(automation.clickCalls.first?.snapshotId == "snapshot-123")
+        #expect(automation.clickCalls.first?.options.movement == nil)
+        #expect(automation.clickCalls.first?.options.holdDuration == 0)
     }
 
     @Test func automationWaitReturnsMockResult() async throws {
@@ -95,7 +97,12 @@ struct ServiceBridgeTests {
 
 @MainActor
 final class MockAutomationService: UIAutomationServiceProtocol {
-    struct ClickCall { let target: ClickTarget; let clickType: ClickType; let snapshotId: String? }
+    struct ClickCall {
+        let target: ClickTarget
+        let clickType: ClickType
+        let snapshotId: String?
+        let options: ClickOptions
+    }
     var clickCalls: [ClickCall] = []
     var waitCalls: [ClickTarget] = []
     var waitResult: WaitForElementResult
@@ -112,8 +119,8 @@ final class MockAutomationService: UIAutomationServiceProtocol {
         throw PeekabooError.notImplemented("mock detectElements")
     }
 
-    func click(target: ClickTarget, clickType: ClickType, snapshotId: String?) async throws {
-        self.clickCalls.append(.init(target: target, clickType: clickType, snapshotId: snapshotId))
+    func click(target: ClickTarget, clickType: ClickType, snapshotId: String?, options: ClickOptions) async throws {
+        self.clickCalls.append(.init(target: target, clickType: clickType, snapshotId: snapshotId, options: options))
     }
 
     func type(

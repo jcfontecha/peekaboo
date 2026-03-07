@@ -33,6 +33,8 @@ struct ClickCommandTests {
         } else {
             Issue.record("Expected coordinates click target")
         }
+        #expect(call.options.holdDuration == 0)
+        #expect(call.options.movement == nil)
     }
 
     @Test("Click command  validates coordinate format")

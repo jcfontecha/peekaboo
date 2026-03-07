@@ -97,6 +97,7 @@ final class StubAutomationService: UIAutomationServiceProtocol {
         let target: ClickTarget
         let clickType: ClickType
         let snapshotId: String?
+        let options: ClickOptions
     }
 
     struct TypeTextCall: Sendable {
@@ -198,8 +199,10 @@ final class StubAutomationService: UIAutomationServiceProtocol {
         throw TestStubError.unimplemented(#function)
     }
 
-    func click(target: ClickTarget, clickType: ClickType, snapshotId: String?) async throws {
-        self.clickCalls.append(ClickCall(target: target, clickType: clickType, snapshotId: snapshotId))
+    func click(target: ClickTarget, clickType: ClickType, snapshotId: String?, options: ClickOptions) async throws {
+        self.clickCalls.append(
+            ClickCall(target: target, clickType: clickType, snapshotId: snapshotId, options: options)
+        )
     }
 
     func type(

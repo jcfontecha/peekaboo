@@ -19,7 +19,8 @@ public protocol UIAutomationServiceProtocol: Sendable {
     ///   - target: Click target (element ID, coordinates, or query)
     ///   - clickType: Type of click (single, double, right)
     ///   - snapshotId: Snapshot ID for element resolution
-    func click(target: ClickTarget, clickType: ClickType, snapshotId: String?) async throws
+    ///   - options: Additional click behavior such as pre-click cursor movement or hold duration
+    func click(target: ClickTarget, clickType: ClickType, snapshotId: String?, options: ClickOptions) async throws
 
     /// Type text at current focus or specific element
     /// - Parameters:
@@ -170,6 +171,34 @@ public struct HumanMouseProfileConfiguration: Sendable, Equatable, Codable {
     }
 
     public static let `default` = HumanMouseProfileConfiguration()
+}
+
+public struct ClickMovement: Sendable, Equatable, Codable {
+    public var duration: Int
+    public var steps: Int
+    public var profile: MouseMovementProfile
+
+    public init(duration: Int, steps: Int, profile: MouseMovementProfile) {
+        self.duration = duration
+        self.steps = steps
+        self.profile = profile
+    }
+}
+
+public struct ClickOptions: Sendable, Equatable, Codable {
+    public var movement: ClickMovement?
+    public var holdDuration: Int
+
+    public init(movement: ClickMovement? = nil, holdDuration: Int = 0) {
+        self.movement = movement
+        self.holdDuration = holdDuration
+    }
+}
+
+public extension UIAutomationServiceProtocol {
+    func click(target: ClickTarget, clickType: ClickType, snapshotId: String?) async throws {
+        try await self.click(target: target, clickType: clickType, snapshotId: snapshotId, options: ClickOptions())
+    }
 }
 
 /// Result of element detection

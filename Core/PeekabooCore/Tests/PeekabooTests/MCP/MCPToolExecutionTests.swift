@@ -191,8 +191,16 @@ private enum MCPToolTestHelpers {
 
 @MainActor
 private final class MockAutomationService: UIAutomationServiceProtocol {
+    struct ClickCall {
+        let target: ClickTarget
+        let clickType: ClickType
+        let snapshotId: String?
+        let options: ClickOptions
+    }
+
     private let accessibilityGranted: Bool
     var lastCadence: TypingCadence?
+    var lastClick: ClickCall?
 
     init(accessibilityGranted: Bool) {
         self.accessibilityGranted = accessibilityGranted
@@ -204,7 +212,9 @@ private final class MockAutomationService: UIAutomationServiceProtocol {
         throw PeekabooError.notImplemented("mock detectElements")
     }
 
-    func click(target _: ClickTarget, clickType _: ClickType, snapshotId _: String?) async throws {}
+    func click(target: ClickTarget, clickType: ClickType, snapshotId: String?, options: ClickOptions) async throws {
+        self.lastClick = ClickCall(target: target, clickType: clickType, snapshotId: snapshotId, options: options)
+    }
 
     func type(text _: String, target _: String?, clearExisting _: Bool, typingDelay _: Int, snapshotId _: String?) async
     throws {}
@@ -421,6 +431,35 @@ struct MCPToolErrorHandlingTests {
             if case let .text(error) = response.content.first {
                 #expect(error.contains("Invalid coordinates format") || error.contains("coordinates"))
             }
+        }
+    }
+
+    @Test("Click tool forwards movement and hold options")
+    func clickToolForwardsMovementAndHoldOptions() async throws {
+        let automation = await MainActor.run { MockAutomationService(accessibilityGranted: true) }
+
+        try await MCPToolTestHelpers.withContext(automation: automation) {
+            let tool = ClickTool()
+            let args = ToolArguments(raw: [
+                "coords": "100,200",
+                "profile": "human",
+                "duration": 650,
+                "steps": 42,
+                "hold_duration": 300,
+            ])
+            let response = try await tool.execute(arguments: args)
+            #expect(response.isError == false)
+        }
+
+        let lastClick = await MainActor.run { automation.lastClick }
+        #expect(lastClick?.clickType == .single)
+        #expect(lastClick?.options.holdDuration == 300)
+        #expect(lastClick?.options.movement?.duration == 650)
+        #expect(lastClick?.options.movement?.steps == 42)
+        if case .human? = lastClick?.options.movement?.profile {
+            #expect(Bool(true))
+        } else {
+            Issue.record("Expected human click movement profile")
         }
     }
 

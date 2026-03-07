@@ -154,6 +154,24 @@ struct MCPSpecificToolTests {
 
     // MARK: - Hotkey Tool Tests
 
+    @Test("Click tool schema exposes movement and hold options")
+    func clickToolSchema() {
+        let tool = makeTestTool(ClickTool.init)
+
+        guard case let .object(schema) = tool.inputSchema,
+              let properties = schema["properties"],
+              case let .object(props) = properties
+        else {
+            Issue.record("Expected object schema with properties")
+            return
+        }
+
+        #expect(props["profile"] != nil)
+        #expect(props["duration"] != nil)
+        #expect(props["steps"] != nil)
+        #expect(props["hold_duration"] != nil)
+    }
+
     @Test("Hotkey tool schema includes modifier combinations")
     func hotkeyToolSchema() {
         let tool = makeTestTool(HotkeyTool.init)

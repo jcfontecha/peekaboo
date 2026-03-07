@@ -169,8 +169,17 @@ public actor PeekabooBridgeClient {
         }
     }
 
-    public func click(target: ClickTarget, clickType: ClickType, snapshotId: String?) async throws {
-        let payload = PeekabooBridgeClickRequest(target: target, clickType: clickType, snapshotId: snapshotId)
+    public func click(
+        target: ClickTarget,
+        clickType: ClickType,
+        snapshotId: String?,
+        options: ClickOptions = ClickOptions()) async throws
+    {
+        let payload = PeekabooBridgeClickRequest(
+            target: target,
+            clickType: clickType,
+            snapshotId: snapshotId,
+            options: options)
         try await self.sendExpectOK(.click(payload))
     }
 

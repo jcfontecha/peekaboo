@@ -36,6 +36,26 @@ extension ClickCommand: CommanderSignatureProviding {
                     help: "Maximum milliseconds to wait for element",
                     long: "wait-for"
                 ),
+                .commandOption(
+                    "profile",
+                    help: "Cursor movement profile before clicking: linear or human",
+                    long: "profile"
+                ),
+                .commandOption(
+                    "duration",
+                    help: "Cursor movement duration in milliseconds before clicking",
+                    long: "duration"
+                ),
+                .commandOption(
+                    "steps",
+                    help: "Number of movement steps before clicking",
+                    long: "steps"
+                ),
+                .commandOption(
+                    "holdDuration",
+                    help: "How long to hold the mouse button in milliseconds",
+                    long: "hold-duration"
+                ),
             ],
             flags: [
                 .commandFlag(

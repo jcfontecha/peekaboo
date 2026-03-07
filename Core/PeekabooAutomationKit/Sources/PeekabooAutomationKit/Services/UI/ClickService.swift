@@ -43,26 +43,45 @@ import PeekabooFoundation
 public final class ClickService {
     private let logger = Logger(subsystem: "boo.peekaboo.core", category: "ClickService")
     private let snapshotManager: any SnapshotManagerProtocol
+    private let gestureService: GestureService
 
-    public init(snapshotManager: (any SnapshotManagerProtocol)? = nil) {
+    public init(
+        snapshotManager: (any SnapshotManagerProtocol)? = nil,
+        gestureService: GestureService = GestureService())
+    {
         self.snapshotManager = snapshotManager ?? SnapshotManager()
+        self.gestureService = gestureService
     }
 
     /// Perform a click operation
     @MainActor
-    public func click(target: ClickTarget, clickType: ClickType, snapshotId: String?) async throws {
+    public func click(
+        target: ClickTarget,
+        clickType: ClickType,
+        snapshotId: String?,
+        options: ClickOptions) async throws
+    {
         self.logger.debug("Click requested - target: \(String(describing: target)), type: \(clickType)")
+        try self.validate(options: options, clickType: clickType)
 
         do {
             switch target {
             case let .elementId(id):
-                try await self.clickElementById(id: id, clickType: clickType, snapshotId: snapshotId)
+                try await self.clickElementById(
+                    id: id,
+                    clickType: clickType,
+                    snapshotId: snapshotId,
+                    options: options)
 
             case let .coordinates(point):
-                try await self.performClick(at: point, clickType: clickType)
+                try await self.performClick(at: point, clickType: clickType, options: options)
 
             case let .query(query):
-                try await self.clickElementByQuery(query: query, clickType: clickType, snapshotId: snapshotId)
+                try await self.clickElementByQuery(
+                    query: query,
+                    clickType: clickType,
+                    snapshotId: snapshotId,
+                    options: options)
             }
         } catch {
             self.logger.error("Click failed: \(error.localizedDescription)")
@@ -70,9 +89,19 @@ public final class ClickService {
         }
     }
 
+    @MainActor
+    public func click(target: ClickTarget, clickType: ClickType, snapshotId: String?) async throws {
+        try await self.click(target: target, clickType: clickType, snapshotId: snapshotId, options: ClickOptions())
+    }
+
     // MARK: - Private Methods
 
-    private func clickElementById(id: String, clickType: ClickType, snapshotId: String?) async throws {
+    private func clickElementById(
+        id: String,
+        clickType: ClickType,
+        snapshotId: String?,
+        options: ClickOptions) async throws
+    {
         // Get element from snapshot
         if let snapshotId,
            let detectionResult = try? await snapshotManager.getDetectionResult(snapshotId: snapshotId),
@@ -81,11 +110,12 @@ public final class ClickService {
             // Click at element center
             let center = CGPoint(x: element.bounds.midX, y: element.bounds.midY)
             let adjusted = try await self.resolveAdjustedPoint(center, snapshotId: snapshotId)
-            try await self.performClick(at: adjusted, clickType: clickType)
+            try await self.performClick(at: adjusted, clickType: clickType, options: options)
             try await self.nudgeTextInputFocusIfNeeded(
                 afterClickAt: adjusted,
                 clickType: clickType,
-                expectedIdentifier: element.attributes["identifier"])
+                expectedIdentifier: element.attributes["identifier"],
+                options: options)
             self.logger.debug("Clicked element \(id) at (\(adjusted.x), \(adjusted.y))")
         } else {
             throw NotFoundError.element(id)
@@ -93,7 +123,12 @@ public final class ClickService {
     }
 
     @MainActor
-    private func clickElementByQuery(query: String, clickType: ClickType, snapshotId: String?) async throws {
+    private func clickElementByQuery(
+        query: String,
+        clickType: ClickType,
+        snapshotId: String?,
+        options: ClickOptions) async throws
+    {
         // First try to find in snapshot data if available (much faster)
         var found = false
         var clickFrame: CGRect?
@@ -126,11 +161,12 @@ public final class ClickService {
             let adjusted = try await self.resolveAdjustedPoint(
                 center,
                 snapshotId: resolvedElement != nil ? snapshotId : nil)
-            try await self.performClick(at: adjusted, clickType: clickType)
+            try await self.performClick(at: adjusted, clickType: clickType, options: options)
             try await self.nudgeTextInputFocusIfNeeded(
                 afterClickAt: adjusted,
                 clickType: clickType,
-                expectedIdentifier: resolvedElement?.attributes["identifier"])
+                expectedIdentifier: resolvedElement?.attributes["identifier"],
+                options: options)
             self.logger.debug("Clicked element matching '\(query)' at (\(adjusted.x), \(adjusted.y))")
         } else {
             throw NotFoundError.element(query)
@@ -157,9 +193,10 @@ public final class ClickService {
     private func nudgeTextInputFocusIfNeeded(
         afterClickAt point: CGPoint,
         clickType: ClickType,
-        expectedIdentifier: String?) async throws
+        expectedIdentifier: String?,
+        options: ClickOptions) async throws
     {
-        guard clickType == .single else { return }
+        guard clickType == .single, options.holdDuration == 0 else { return }
 
         let normalizedExpectedIdentifier = expectedIdentifier?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -176,7 +213,7 @@ public final class ClickService {
 
         for dy in nudges {
             let candidate = CGPoint(x: point.x, y: point.y + dy)
-            try await self.performClick(at: candidate, clickType: .single)
+            try await self.performClick(at: candidate, clickType: .single, options: ClickOptions())
             try await Task.sleep(nanoseconds: 60_000_000) // 60ms
 
             if self.isFocusedTextInput(expectedIdentifier: normalizedExpectedIdentifier) {
@@ -292,17 +329,62 @@ public final class ClickService {
     }
 
     /// Perform actual click at coordinates using AXorcist InputDriver.
-    private func performClick(at point: CGPoint, clickType: ClickType) async throws {
+    private func performClick(at point: CGPoint, clickType: ClickType, options: ClickOptions) async throws {
         self.logger.debug("Performing \(clickType) click at (\(point.x), \(point.y))")
+        try await self.moveCursorIfNeeded(to: point, options: options)
 
         switch clickType {
         case .single:
-            try InputDriver.click(at: point, button: .left, count: 1)
+            if options.holdDuration > 0 {
+                try InputDriver.pressHold(
+                    at: point,
+                    button: .left,
+                    duration: TimeInterval(options.holdDuration) / 1000.0)
+            } else {
+                try InputDriver.click(at: point, button: .left, count: 1)
+            }
         case .right:
-            try InputDriver.click(at: point, button: .right, count: 1)
+            if options.holdDuration > 0 {
+                try InputDriver.pressHold(
+                    at: point,
+                    button: .right,
+                    duration: TimeInterval(options.holdDuration) / 1000.0)
+            } else {
+                try InputDriver.click(at: point, button: .right, count: 1)
+            }
         case .double:
             try InputDriver.click(at: point, button: .left, count: 2)
         }
+    }
+
+    private func validate(options: ClickOptions, clickType: ClickType) throws {
+        guard options.holdDuration >= 0 else {
+            throw PeekabooError.invalidInput(field: "holdDuration", reason: "Hold duration must be non-negative")
+        }
+
+        if let movement = options.movement {
+            guard movement.duration >= 0 else {
+                throw PeekabooError.invalidInput(field: "duration", reason: "Movement duration must be non-negative")
+            }
+            guard movement.steps > 0 else {
+                throw PeekabooError.invalidInput(field: "steps", reason: "Movement steps must be greater than zero")
+            }
+        }
+
+        guard clickType != .double || options.holdDuration == 0 else {
+            throw PeekabooError.invalidInput(
+                field: "holdDuration",
+                reason: "Double-click does not support hold duration")
+        }
+    }
+
+    private func moveCursorIfNeeded(to point: CGPoint, options: ClickOptions) async throws {
+        guard let movement = options.movement else { return }
+        try await self.gestureService.moveMouse(
+            to: point,
+            duration: movement.duration,
+            steps: movement.steps,
+            profile: movement.profile)
     }
 
     private func performForceClick(at point: CGPoint) async throws {

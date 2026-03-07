@@ -139,12 +139,6 @@ public final class GestureService {
         }
     }
 
-    private func stepDelay(duration: Int, steps: Int) -> UInt64 {
-        guard duration > 0, steps > 0 else { return 0 }
-        let secondsPerStep = Double(duration) / 1000.0 / Double(steps)
-        return UInt64(secondsPerStep * 1_000_000_000)
-    }
-
     private func performSwipe(
         path: HumanMousePath,
         start: CGPoint,
@@ -164,11 +158,6 @@ public final class GestureService {
         let steps = max(path.points.count, 2)
         let delay = Double(path.duration) / 1000.0 / Double(steps)
         try InputDriver.drag(from: start, to: endPoint, button: .left, steps: steps, interStepDelay: delay)
-    }
-
-    private func sleepIfNeeded(_ delay: UInt64) async throws {
-        guard delay > 0 else { return }
-        try await Task.sleep(nanoseconds: delay)
     }
 
     private func linearPath(from start: CGPoint, to end: CGPoint, steps: Int) -> [CGPoint] {
@@ -206,11 +195,109 @@ public final class GestureService {
 
     private func playPath(_ points: [CGPoint], duration: Int) async throws {
         guard !points.isEmpty else { return }
-        let delay = self.stepDelay(duration: duration, steps: points.count)
-        for point in points {
-            try InputDriver.move(to: point)
-            if delay > 0 { try await Task.sleep(nanoseconds: delay) }
+        let plan = GesturePlaybackPlan(sourcePoints: points, duration: duration)
+
+        guard plan.duration > 0 else {
+            try InputDriver.move(to: plan.samples.last ?? points.last!)
+            return
         }
+
+        let startUptime = DispatchTime.now().uptimeNanoseconds
+        for (index, point) in plan.samples.enumerated() {
+            let scheduledUptime = startUptime + plan.scheduledOffsetNanoseconds(for: index)
+            let currentUptime = DispatchTime.now().uptimeNanoseconds
+            if scheduledUptime > currentUptime {
+                try await Task.sleep(nanoseconds: scheduledUptime - currentUptime)
+            }
+            try InputDriver.move(to: point)
+        }
+    }
+}
+
+struct GesturePlaybackPlan {
+    let samples: [CGPoint]
+    let duration: Int
+
+    private let sampleCount: Int
+
+    init(
+        sourcePoints: [CGPoint],
+        duration: Int,
+        targetFrameIntervalMilliseconds: Int = 8,
+        maximumSegmentLength: CGFloat = 1.5,
+        maximumSamples: Int = 2_400)
+    {
+        self.duration = max(duration, 0)
+        self.samples = Self.makeSamples(
+            from: sourcePoints,
+            duration: self.duration,
+            targetFrameIntervalMilliseconds: targetFrameIntervalMilliseconds,
+            maximumSegmentLength: maximumSegmentLength,
+            maximumSamples: maximumSamples)
+        self.sampleCount = self.samples.count
+    }
+
+    func scheduledOffsetNanoseconds(for sampleIndex: Int) -> UInt64 {
+        guard self.duration > 0, self.sampleCount > 0 else { return 0 }
+        let clampedIndex = min(max(sampleIndex + 1, 1), self.sampleCount)
+        let durationNanoseconds = UInt64(self.duration) * 1_000_000
+        return (durationNanoseconds * UInt64(clampedIndex)) / UInt64(self.sampleCount)
+    }
+
+    private static func makeSamples(
+        from points: [CGPoint],
+        duration: Int,
+        targetFrameIntervalMilliseconds: Int,
+        maximumSegmentLength: CGFloat,
+        maximumSamples: Int) -> [CGPoint]
+    {
+        guard let lastPoint = points.last else { return [] }
+        guard points.count > 1, duration > 0 else { return [lastPoint] }
+
+        let sampleCount = self.sampleCount(
+            for: points,
+            duration: duration,
+            targetFrameIntervalMilliseconds: targetFrameIntervalMilliseconds,
+            maximumSegmentLength: maximumSegmentLength,
+            maximumSamples: maximumSamples)
+
+        return (1...sampleCount).map { sampleIndex in
+            let progress = Double(sampleIndex) / Double(sampleCount)
+            return self.interpolate(points: points, progress: progress)
+        }
+    }
+
+    private static func sampleCount(
+        for points: [CGPoint],
+        duration: Int,
+        targetFrameIntervalMilliseconds: Int,
+        maximumSegmentLength: CGFloat,
+        maximumSamples: Int) -> Int
+    {
+        let frameInterval = max(targetFrameIntervalMilliseconds, 1)
+        let cadenceSamples = max(Int(ceil(Double(duration) / Double(frameInterval))), 1)
+        let pathLength = zip(points, points.dropFirst()).reduce(CGFloat.zero) { partial, segment in
+            partial + hypot(segment.1.x - segment.0.x, segment.1.y - segment.0.y)
+        }
+        let spatialSamples = max(Int(ceil(pathLength / max(maximumSegmentLength, 0.25))), 1)
+        return min(max(points.count, cadenceSamples, spatialSamples), max(maximumSamples, 1))
+    }
+
+    private static func interpolate(points: [CGPoint], progress: Double) -> CGPoint {
+        guard points.count > 1 else { return points.last ?? .zero }
+
+        let clampedProgress = min(max(progress, 0), 1)
+        let scaledIndex = clampedProgress * Double(points.count - 1)
+        let lowerIndex = Int(floor(scaledIndex))
+        let upperIndex = min(lowerIndex + 1, points.count - 1)
+        guard upperIndex > lowerIndex else { return points[lowerIndex] }
+
+        let segmentProgress = scaledIndex - Double(lowerIndex)
+        let start = points[lowerIndex]
+        let end = points[upperIndex]
+        return CGPoint(
+            x: start.x + ((end.x - start.x) * segmentProgress),
+            y: start.y + ((end.y - start.y) * segmentProgress))
     }
 }
 

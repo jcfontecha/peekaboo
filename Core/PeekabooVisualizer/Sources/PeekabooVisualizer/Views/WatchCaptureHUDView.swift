@@ -68,11 +68,13 @@ struct WatchCaptureHUDView: View {
     }
 }
 
+#if canImport(PreviewsMacros)
 #Preview("Watch HUD") {
     WatchCaptureHUDView(sequence: 0)
         .padding()
         .background(Color.black.opacity(0.6))
 }
+#endif
 
 private struct WatchTimelineView: View {
     let activeIndex: Int

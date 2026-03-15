@@ -126,7 +126,7 @@ struct ClickAnimationView: View {
 
 // MARK: - Preview
 
-#if DEBUG
+#if DEBUG && canImport(PreviewsMacros)
 #Preview("Single Click") {
     ClickAnimationView(clickType: .single, animationSpeed: 1.0)
         .frame(width: 300, height: 300)

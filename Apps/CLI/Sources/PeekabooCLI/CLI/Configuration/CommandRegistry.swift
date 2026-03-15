@@ -42,6 +42,7 @@ enum CommandRegistry {
         .init(type: PermissionsCommand.self, category: .core),
         .init(type: LearnCommand.self, category: .core),
         .init(type: SeeCommand.self, category: .vision),
+        .init(type: BrowserCommand.self, category: .vision),
         .init(type: ClickCommand.self, category: .interaction),
         .init(type: TypeCommand.self, category: .interaction),
         .init(type: PressCommand.self, category: .interaction),

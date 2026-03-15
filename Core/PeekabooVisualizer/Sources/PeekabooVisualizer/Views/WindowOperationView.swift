@@ -315,6 +315,7 @@ extension View {
     }
 }
 
+#if canImport(PreviewsMacros)
 #Preview {
     VStack(spacing: 50) {
         WindowOperationView(
@@ -330,3 +331,4 @@ extension View {
             .background(Color.black.opacity(0.1))
     }
 }
+#endif

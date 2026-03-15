@@ -319,7 +319,7 @@ struct SpecialKeyView: View {
 
 // MARK: - Preview
 
-#if DEBUG
+#if DEBUG && canImport(PreviewsMacros)
 #Preview("Modern Theme") {
     TypeAnimationView(
         keys: ["H", "e", "l", "l", "o", " ", "W", "o", "r", "l", "d"],

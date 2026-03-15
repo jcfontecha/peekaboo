@@ -7,6 +7,15 @@ import PeekabooFoundation
 @available(macOS 14.0, *)
 @MainActor
 struct PressCommand: ErrorHandlingCommand, OutputFormattable, RuntimeOptionsConfigurable {
+    private static let browserBundleIdentifiers: Set<String> = [
+        "com.google.chrome",
+        "com.google.chrome.canary",
+        "org.chromium.chromium",
+        "com.brave.browser",
+        "com.microsoft.edgemac",
+        "company.thebrowser.browser",
+    ]
+
     @Argument(help: "Key(s) to press")
     var keys: [String]
 
@@ -82,21 +91,27 @@ struct PressCommand: ErrorHandlingCommand, OutputFormattable, RuntimeOptionsConf
                 services: self.services
             )
 
-            // Build actions - repeat each key sequence 'count' times
-            var actions: [TypeAction] = []
-            for _ in 0..<self.count {
-                for (index, key) in self.keys.indexed() {
-                    if let specialKey = SpecialKey(rawValue: key.lowercased()) {
-                        actions.append(.key(specialKey))
-                    }
+            let actions = self.buildActions()
 
-                    // Add delay between keys (but not after the last key of the last repetition)
-                    let isLastKey = index == self.keys.count - 1
-                    let isLastRepetition = self.count == 1
-                    if !isLastKey || !isLastRepetition {
-                        // We'll handle the delay in the service
+            if try await self.tryDispatchViaBrowserCDP(actions: actions, snapshotId: snapshotId) {
+                let pressResult = PressResult(
+                    success: true,
+                    keys: self.keys,
+                    totalPresses: actions.count,
+                    count: self.count,
+                    executionTime: Date().timeIntervalSince(startTime)
+                )
+
+                output(pressResult) {
+                    print("✅ Key press completed")
+                    print("🔑 Keys: \(self.keys.joined(separator: " → "))")
+                    if self.count > 1 {
+                        print("🔢 Repeated: \(self.count) times")
                     }
+                    print("📊 Total presses: \(actions.count)")
+                    print("⏱️  Completed in \(String(format: "%.2f", Date().timeIntervalSince(startTime)))s")
                 }
+                return
             }
 
             // Execute key presses
@@ -132,6 +147,59 @@ struct PressCommand: ErrorHandlingCommand, OutputFormattable, RuntimeOptionsConf
         } catch {
             self.handleError(error)
             throw ExitCode.failure
+        }
+    }
+
+    private func buildActions() -> [TypeAction] {
+        var actions: [TypeAction] = []
+        for _ in 0..<self.count {
+            for key in self.keys {
+                if let specialKey = SpecialKey(rawValue: key.lowercased()) {
+                    actions.append(.key(specialKey))
+                }
+            }
+        }
+        return actions
+    }
+
+    private func tryDispatchViaBrowserCDP(actions: [TypeAction], snapshotId: String?) async throws -> Bool {
+        guard snapshotId == nil, !self.target.hasAnyTarget, !actions.isEmpty else {
+            return false
+        }
+
+        let frontmost = try await self.services.applications.getFrontmostApplication()
+        let bundleID = frontmost.bundleIdentifier?.lowercased() ?? ""
+        let appName = frontmost.name.lowercased()
+        let isBrowser = Self.browserBundleIdentifiers.contains(bundleID) ||
+            appName.contains("chrome") ||
+            appName.contains("chromium") ||
+            appName.contains("brave") ||
+            appName.contains("edge") ||
+            appName == "arc"
+        guard isBrowser else {
+            return false
+        }
+
+        do {
+            let handle = try await BrowserCDP.openSession(port: 18800, urlFilter: nil)
+            defer { handle.session.close() }
+            for (index, action) in actions.enumerated() {
+                guard case let .key(key) = action else {
+                    continue
+                }
+
+                try await handle.session.dispatchSpecialKey(key)
+
+                if index < actions.count - 1, self.delay > 0 {
+                    try await Task.sleep(nanoseconds: UInt64(self.delay) * 1_000_000)
+                }
+            }
+            return true
+        } catch {
+            self.logger.debug(
+                "Browser CDP fallback for `press` failed, using native key injection: \(error.localizedDescription)"
+            )
+            return false
         }
     }
 

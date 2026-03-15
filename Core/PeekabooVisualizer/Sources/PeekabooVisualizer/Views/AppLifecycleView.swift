@@ -235,6 +235,7 @@ struct AppParticle: View {
     }
 }
 
+#if canImport(PreviewsMacros)
 #Preview {
     VStack(spacing: 50) {
         AppLifecycleView(
@@ -252,3 +253,4 @@ struct AppParticle: View {
             .background(Color.black.opacity(0.8))
     }
 }
+#endif

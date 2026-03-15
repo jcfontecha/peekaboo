@@ -146,7 +146,7 @@ struct ScrollAnimationView: View {
 
 // MARK: - Preview
 
-#if DEBUG
+#if DEBUG && canImport(PreviewsMacros)
 #Preview("Scroll Up") {
     ScrollAnimationView(direction: .up, amount: 3)
         .frame(width: 150, height: 150)

@@ -231,6 +231,7 @@ extension SpaceDirection {
     }
 }
 
+#if canImport(PreviewsMacros)
 #Preview {
     VStack(spacing: 50) {
         SpaceTransitionView(
@@ -248,3 +249,4 @@ extension SpaceDirection {
             .background(Color.black)
     }
 }
+#endif

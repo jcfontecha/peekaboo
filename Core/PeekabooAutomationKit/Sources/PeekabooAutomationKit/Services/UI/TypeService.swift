@@ -4,6 +4,7 @@ import CoreGraphics
 import Foundation
 import os.log
 import PeekabooFoundation
+import PeekabooHumanInput
 
 /// Service for handling typing and text input operations
 @MainActor

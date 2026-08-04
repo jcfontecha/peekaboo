@@ -24,6 +24,7 @@ let package = Package(
             targets: ["PeekabooAutomationKit"]),
     ],
     dependencies: [
+        .package(path: "../PeekabooHumanInput"),
         .package(path: "../PeekabooFoundation"),
         .package(path: "../PeekabooProtocols"),
         .package(path: "../../AXorcist"),
@@ -33,6 +34,7 @@ let package = Package(
         .target(
             name: "PeekabooAutomationKit",
             dependencies: [
+                .product(name: "PeekabooHumanInput", package: "PeekabooHumanInput"),
                 .product(name: "PeekabooFoundation", package: "PeekabooFoundation"),
                 .product(name: "PeekabooProtocols", package: "PeekabooProtocols"),
                 .product(name: "AXorcist", package: "AXorcist"),

@@ -36,6 +36,9 @@ let package = Package(
     ],
     products: [
         .library(
+            name: "PeekabooHumanInput",
+            targets: ["PeekabooHumanInput"]),
+        .library(
             name: "PeekabooFoundation",
             targets: ["PeekabooFoundation"]),
         .library(
@@ -54,6 +57,11 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "PeekabooHumanInput",
+            dependencies: [],
+            path: "Core/PeekabooHumanInput/Sources/PeekabooHumanInput",
+            swiftSettings: foundationTargetSettings),
+        .target(
             name: "PeekabooFoundation",
             dependencies: [],
             path: "Core/PeekabooFoundation/Sources/PeekabooFoundation",
@@ -68,6 +76,7 @@ let package = Package(
         .target(
             name: "PeekabooAutomationKit",
             dependencies: [
+                "PeekabooHumanInput",
                 "PeekabooFoundation",
                 "PeekabooProtocols",
                 .product(name: "AXorcist", package: "AXorcist"),

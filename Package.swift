@@ -2,96 +2,30 @@
 
 import PackageDescription
 
-let approachableConcurrencySettings: [SwiftSetting] = [
+let humanInputSettings: [SwiftSetting] = [
     .enableExperimentalFeature("StrictConcurrency"),
     .enableUpcomingFeature("ExistentialAny"),
     .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
-]
-
-let foundationTargetSettings = approachableConcurrencySettings + [
     .unsafeFlags(["-parse-as-library"]),
 ]
 
-let protocolTargetSettings = approachableConcurrencySettings + [
-    .defaultIsolation(MainActor.self),
-    .unsafeFlags([
-        "-Xfrontend", "-warn-long-function-bodies=50",
-        "-Xfrontend", "-warn-long-expression-type-checking=50",
-    ], .when(configuration: .debug)),
-]
-
-let kitTargetSettings = approachableConcurrencySettings + [
-    .enableExperimentalFeature("SwiftTesting"),
-    .unsafeFlags(["-parse-as-library"]),
-]
-
-let coreTargetSettings = approachableConcurrencySettings + [
-    .unsafeFlags(["-parse-as-library"]),
-]
-
+// The repository root is the small public package consumed by Screeny. Peekaboo's
+// own applications continue to compose the focused packages under Core/ directly.
 let package = Package(
-    name: "Peekaboo",
-    platforms: [
-        .macOS(.v14),
-    ],
+    name: "PeekabooHumanInput",
+    platforms: [.macOS(.v14)],
     products: [
-        .library(
-            name: "PeekabooHumanInput",
-            targets: ["PeekabooHumanInput"]),
-        .library(
-            name: "PeekabooFoundation",
-            targets: ["PeekabooFoundation"]),
-        .library(
-            name: "PeekabooProtocols",
-            targets: ["PeekabooProtocols"]),
-        .library(
-            name: "PeekabooAutomationKit",
-            targets: ["PeekabooAutomationKit"]),
-        .library(
-            name: "PeekabooBridge",
-            targets: ["PeekabooBridge"]),
-    ],
-    dependencies: [
-        .package(url: "https://github.com/openclaw/AXorcist.git", exact: "0.1.6"),
-        .package(url: "https://github.com/apple/swift-algorithms", from: "1.2.1"),
+        .library(name: "PeekabooHumanInput", targets: ["PeekabooHumanInput"]),
     ],
     targets: [
         .target(
             name: "PeekabooHumanInput",
-            dependencies: [],
             path: "Core/PeekabooHumanInput/Sources/PeekabooHumanInput",
-            swiftSettings: foundationTargetSettings),
-        .target(
-            name: "PeekabooFoundation",
-            dependencies: [],
-            path: "Core/PeekabooFoundation/Sources/PeekabooFoundation",
-            swiftSettings: foundationTargetSettings),
-        .target(
-            name: "PeekabooProtocols",
-            dependencies: [
-                "PeekabooFoundation",
-            ],
-            path: "Core/PeekabooProtocols/Sources/PeekabooProtocols",
-            swiftSettings: protocolTargetSettings),
-        .target(
-            name: "PeekabooAutomationKit",
-            dependencies: [
-                "PeekabooHumanInput",
-                "PeekabooFoundation",
-                "PeekabooProtocols",
-                .product(name: "AXorcist", package: "AXorcist"),
-                .product(name: "Algorithms", package: "swift-algorithms"),
-            ],
-            path: "Core/PeekabooAutomationKit/Sources/PeekabooAutomationKit",
-            exclude: ["Core/README.md"],
-            swiftSettings: kitTargetSettings),
-        .target(
-            name: "PeekabooBridge",
-            dependencies: [
-                "PeekabooAutomationKit",
-                "PeekabooFoundation",
-            ],
-            path: "Core/PeekabooCore/Sources/PeekabooBridge",
-            swiftSettings: coreTargetSettings),
+            swiftSettings: humanInputSettings),
+        .testTarget(
+            name: "PeekabooHumanInputTests",
+            dependencies: ["PeekabooHumanInput"],
+            path: "Core/PeekabooHumanInput/Tests/PeekabooHumanInputTests",
+            swiftSettings: humanInputSettings),
     ],
     swiftLanguageModes: [.v6])
